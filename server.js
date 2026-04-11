@@ -1,231 +1,264 @@
+require('dotenv').config();
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+const { WebSocketServer } = require('ws');
+const http = require('http');
+
+const apiRoutes = require('./routes/api');
+const sseRoutes = require('./routes/sse');
+const uploadRoutes = require('./routes/upload');
+const chunkUploadRoutes = require('./routes/chunkUpload');
+const resumeRoutes = require('./routes/resume');
+
+const { errorHandler, notFoundHandler } = require('./utils/error');
+const { requestLogger, logger } = require('./utils/logger');
+const { corsMiddleware, securityHeaders, requestId } = require('./middleware/cors');
+const { apiRateLimit, strictRateLimit, authRateLimit, uploadRateLimit } = require('./middleware/rateLimit');
+const { preventDuplicateSubmit } = require('./middleware/preventDuplicate');
+
+const initDatabase = require('./scripts/init-db');
+const { sequelize } = require('./config/database');
 
 const app = express();
-const PORT = 3000;
-const DATA_FILE = path.join(__dirname, 'data.json');
+const server = http.createServer(app);
+const PORT = process.env.PORT || 3000;
 
-// 中间件
-app.use(express.json());
+const uploadsDir = path.join(__dirname, 'uploads');
+const chunksDir = path.join(__dirname, 'chunks');
+const filesInfoDir = path.join(__dirname, 'files-info');
+const resumeDir = path.join(__dirname, 'resume-uploads');
+const logsDir = path.join(__dirname, 'logs');
 
-// CORS 支持
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+[uploadsDir, chunksDir, filesInfoDir, resumeDir, logsDir].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
-  next();
 });
 
-// 日志中间件
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-  next();
+app.use(requestId);
+app.use(securityHeaders);
+app.use(corsMiddleware());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(requestLogger);
+
+app.use('/uploads', express.static(uploadsDir));
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.use('/api', apiRateLimit(), apiRoutes);
+app.use('/sse', strictRateLimit(), sseRoutes);
+app.use('/upload', uploadRateLimit(), preventDuplicateSubmit({ windowMs: 2000 }), uploadRoutes);
+app.use('/chunk', strictRateLimit(), chunkUploadRoutes);
+app.use('/resume', strictRateLimit(), resumeRoutes);
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 初始化数据文件
-function initDataFile() {
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ users: [] }, null, 2));
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'healthy',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      unit: 'MB'
+    }
+  });
+});
+
+app.get('/api-info', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Node.js API Server',
+    version: '1.0.0',
+    endpoints: {
+      rest: {
+        'GET /api/users': '获取用户列表',
+        'GET /api/users/:id': '获取单个用户',
+        'POST /api/users': '创建用户',
+        'PUT /api/users/:id': '更新用户',
+        'DELETE /api/users/:id': '删除用户'
+      },
+      fileUpload: {
+        'POST /upload/single': '单文件上传',
+        'POST /upload/multiple': '多文件上传'
+      },
+      chunkUpload: {
+        'POST /chunk/init': '初始化分片上传',
+        'POST /chunk/upload': '上传分片',
+        'POST /chunk/merge': '合并分片',
+        'POST /chunk/verify': '秒传验证'
+      },
+      resume: {
+        'GET /resume/status/:fileId': '获取上传状态',
+        'POST /resume/upload': '断点续传上传'
+      },
+      sse: {
+        'GET /sse/events': 'SSE 事件流'
+      },
+      websocket: {
+        'ws://localhost:3000': 'WebSocket 连接'
+      }
+    }
+  });
+});
+
+app.use(notFoundHandler);
+app.use(errorHandler);
+
+const wss = new WebSocketServer({ server });
+
+const wsClients = new Map();
+
+wss.on('connection', (ws, req) => {
+  const clientId = Date.now().toString(36) + Math.random().toString(36).substr(2);
+  ws.id = clientId;
+  wsClients.set(clientId, ws);
+
+  logger.info(`WebSocket 客户端连接: ${clientId}`);
+
+  ws.send(JSON.stringify({
+    type: 'connected',
+    clientId,
+    message: 'WebSocket 连接成功'
+  }));
+
+  ws.on('message', (data) => {
+    try {
+      const message = JSON.parse(data.toString());
+      handleWebSocketMessage(ws, message);
+    } catch (error) {
+      ws.send(JSON.stringify({ type: 'error', message: '无效的消息格式' }));
+    }
+  });
+
+  ws.on('close', () => {
+    logger.info(`WebSocket 客户端断开: ${clientId}`);
+    wsClients.delete(clientId);
+  });
+
+  ws.on('error', (error) => {
+    logger.error(`WebSocket 错误: ${error.message}`);
+  });
+});
+
+function handleWebSocketMessage(ws, message) {
+  const { type, payload } = message;
+
+  switch (type) {
+    case 'ping':
+      ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+      break;
+
+    case 'broadcast':
+      const broadcastMsg = JSON.stringify({
+        type: 'broadcast',
+        from: ws.id,
+        message: payload,
+        timestamp: Date.now()
+      });
+      wsClients.forEach((client) => {
+        if (client.readyState === 1) {
+          client.send(broadcastMsg);
+        }
+      });
+      break;
+
+    case 'echo':
+      ws.send(JSON.stringify({
+        type: 'echo',
+        message: payload,
+        timestamp: Date.now()
+      }));
+      break;
+
+    default:
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: `未知的消息类型: ${type}`
+      }));
   }
 }
 
-// 读取数据
-function readData() {
+function broadcastToAll(message) {
+  const msg = JSON.stringify(message);
+  wsClients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(msg);
+    }
+  });
+}
+
+process.on('uncaughtException', (error) => {
+  logger.fatal('未捕获的异常', { error: error.message, stack: error.stack });
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('未处理的 Promise 拒绝', { reason });
+});
+
+process.on('SIGTERM', () => {
+  logger.info('收到 SIGTERM 信号，正在关闭服务器...');
+  server.close(() => {
+    logger.info('服务器已关闭');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  logger.info('收到 SIGINT 信号，正在关闭服务器...');
+  server.close(() => {
+    logger.info('服务器已关闭');
+    process.exit(0);
+  });
+});
+
+async function startServer() {
   try {
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(data);
+    logger.info('正在初始化数据库...');
+    const dbInitialized = await initDatabase();
+    if (!dbInitialized) {
+      logger.error('数据库初始化失败，服务器启动终止');
+      process.exit(1);
+    }
+
+    server.listen(PORT, () => {
+      logger.info(`服务器运行在 http://localhost:${PORT}`);
+      logger.info(`WebSocket 服务运行在 ws://localhost:${PORT}`);
+      console.log('');
+      console.log('可用的 API 接口:');
+      console.log(`  GET    http://localhost:${PORT}/api/users       - 获取所有用户`);
+      console.log(`  GET    http://localhost:${PORT}/api/users/:id   - 获取单个用户`);
+      console.log(`  POST   http://localhost:${PORT}/api/users       - 创建用户`);
+      console.log(`  PUT    http://localhost:${PORT}/api/users/:id   - 更新用户`);
+      console.log(`  DELETE http://localhost:${PORT}/api/users/:id   - 删除用户`);
+      console.log('');
+      console.log('文件上传接口:');
+      console.log(`  POST   http://localhost:${PORT}/upload/single   - 单文件上传`);
+      console.log(`  POST   http://localhost:${PORT}/upload/multiple - 多文件上传`);
+      console.log('');
+      console.log('分片上传接口:');
+      console.log(`  POST   http://localhost:${PORT}/chunk/init      - 初始化分片上传`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/upload    - 上传分片`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/merge     - 合并分片`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/verify    - 秒传验证`);
+      console.log('');
+      console.log('实时通信:');
+      console.log(`  GET    http://localhost:${PORT}/sse/events      - SSE 事件流`);
+      console.log(`  WS     ws://localhost:${PORT}                   - WebSocket 连接`);
+    });
   } catch (error) {
-    console.error('读取数据文件失败:', error);
-    return { users: [] };
+    logger.error('服务器启动失败:', error.message);
+    logger.error(error.stack);
+    process.exit(1);
   }
 }
 
-// 写入数据
-function writeData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error('写入数据文件失败:', error);
-    return false;
-  }
-}
+startServer();
 
-// 错误处理中间件
-app.use((err, req, res, next) => {
-  console.error('服务器错误:', err);
-  res.status(500).json({ success: false, message: '服务器内部错误' });
-});
-
-// 获取所有用户
-app.get('/api/users', (req, res) => {
-  const data = readData();
-  res.json({ success: true, data: data.users });
-});
-
-// 获取单个用户
-app.get('/api/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  
-  if (isNaN(userId)) {
-    return res.status(400).json({ success: false, message: '无效的用户ID' });
-  }
-  
-  const data = readData();
-  const user = data.users.find(u => u.id === userId);
-  if (user) {
-    res.json({ success: true, data: user });
-  } else {
-    res.status(404).json({ success: false, message: '用户不存在' });
-  }
-});
-
-// 创建用户
-app.post('/api/users', (req, res) => {
-  const { name, email, age } = req.body;
-  
-  // 输入验证
-  if (!name || typeof name !== 'string' || name.trim() === '') {
-    return res.status(400).json({ success: false, message: '姓名不能为空且必须是字符串' });
-  }
-  
-  if (!email || typeof email !== 'string') {
-    return res.status(400).json({ success: false, message: '邮箱不能为空且必须是字符串' });
-  }
-  
-  // 简单的邮箱格式验证
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ success: false, message: '邮箱格式不正确' });
-  }
-  
-  if (age !== undefined && (typeof age !== 'number' || age < 0)) {
-    return res.status(400).json({ success: false, message: '年龄必须是非负数字' });
-  }
-
-  const data = readData();
-  
-  // 检查邮箱是否已存在
-  const existingUser = data.users.find(u => u.email === email);
-  if (existingUser) {
-    return res.status(400).json({ success: false, message: '该邮箱已被注册' });
-  }
-  
-  const newUser = {
-    id: Date.now(),
-    name: name.trim(),
-    email: email.toLowerCase().trim(),
-    age: age || null,
-    createdAt: new Date().toISOString()
-  };
-
-  data.users.push(newUser);
-  const success = writeData(data);
-  
-  if (!success) {
-    return res.status(500).json({ success: false, message: '保存数据失败' });
-  }
-
-  res.status(201).json({ success: true, message: '用户创建成功', data: newUser });
-});
-
-// 更新用户
-app.put('/api/users/:id', (req, res) => {
-  const { name, email, age } = req.body;
-  const userId = parseInt(req.params.id);
-  
-  if (isNaN(userId)) {
-    return res.status(400).json({ success: false, message: '无效的用户ID' });
-  }
-  
-  // 输入验证
-  if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
-    return res.status(400).json({ success: false, message: '姓名必须是非空字符串' });
-  }
-  
-  if (email !== undefined) {
-    if (typeof email !== 'string') {
-      return res.status(400).json({ success: false, message: '邮箱必须是字符串' });
-    }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ success: false, message: '邮箱格式不正确' });
-    }
-  }
-  
-  if (age !== undefined && (typeof age !== 'number' || age < 0)) {
-    return res.status(400).json({ success: false, message: '年龄必须是非负数字' });
-  }
-
-  const data = readData();
-  const userIndex = data.users.findIndex(u => u.id === userId);
-
-  if (userIndex === -1) {
-    return res.status(404).json({ success: false, message: '用户不存在' });
-  }
-
-  // 检查邮箱是否已被其他用户使用
-  if (email !== undefined && email !== data.users[userIndex].email) {
-    const existingUser = data.users.find(u => u.email === email && u.id !== userId);
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: '该邮箱已被其他用户注册' });
-    }
-  }
-
-  data.users[userIndex] = {
-    ...data.users[userIndex],
-    name: name ? name.trim() : data.users[userIndex].name,
-    email: email ? email.toLowerCase().trim() : data.users[userIndex].email,
-    age: age !== undefined ? age : data.users[userIndex].age,
-    updatedAt: new Date().toISOString()
-  };
-
-  const success = writeData(data);
-  if (!success) {
-    return res.status(500).json({ success: false, message: '保存数据失败' });
-  }
-
-  res.json({ success: true, message: '用户更新成功', data: data.users[userIndex] });
-});
-
-// 删除用户
-app.delete('/api/users/:id', (req, res) => {
-  const userId = parseInt(req.params.id);
-  
-  if (isNaN(userId)) {
-    return res.status(400).json({ success: false, message: '无效的用户ID' });
-  }
-  
-  const data = readData();
-  const userIndex = data.users.findIndex(u => u.id === userId);
-
-  if (userIndex === -1) {
-    return res.status(404).json({ success: false, message: '用户不存在' });
-  }
-
-  const deletedUser = data.users.splice(userIndex, 1)[0];
-  const success = writeData(data);
-  
-  if (!success) {
-    return res.status(500).json({ success: false, message: '保存数据失败' });
-  }
-
-  res.json({ success: true, message: '用户删除成功', data: deletedUser });
-});
-
-// 启动服务器
-initDataFile();
-app.listen(PORT, () => {
-  console.log(`服务器运行在 http://localhost:${PORT}`);
-  console.log('');
-  console.log('可用的 API 接口:');
-  console.log(`  GET    http://localhost:${PORT}/api/users       - 获取所有用户`);
-  console.log(`  GET    http://localhost:${PORT}/api/users/:id   - 获取单个用户`);
-  console.log(`  POST   http://localhost:${PORT}/api/users       - 创建用户`);
-  console.log(`  PUT    http://localhost:${PORT}/api/users/:id   - 更新用户`);
-  console.log(`  DELETE http://localhost:${PORT}/api/users/:id   - 删除用户`);
-});
+module.exports = { app, server, wss, broadcastToAll };

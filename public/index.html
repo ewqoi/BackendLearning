@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Node.js API 测试页面</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { text-align: center; color: #333; margin-bottom: 20px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 20px; }
+    .tab { padding: 10px 20px; background: #fff; border: 1px solid #ddd; border-radius: 5px; cursor: pointer; transition: all 0.3s; }
+    .tab.active { background: #007bff; color: #fff; border-color: #007bff; }
+    .tab:hover { background: #e9ecef; }
+    .tab.active:hover { background: #0056b3; }
+    .panel { display: none; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    .panel.active { display: block; }
+    .section { margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px; }
+    .section h3 { margin-bottom: 15px; color: #495057; border-bottom: 2px solid #007bff; padding-bottom: 5px; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #555; }
+    .form-group input, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .form-group textarea { min-height: 100px; font-family: monospace; }
+    .btn { padding: 10px 20px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px; margin-bottom: 10px; transition: background 0.3s; }
+    .btn:hover { background: #0056b3; }
+    .btn-danger { background: #dc3545; }
+    .btn-danger:hover { background: #c82333; }
+    .btn-success { background: #28a745; }
+    .btn-success:hover { background: #218838; }
+    .result { margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 4px; border-left: 4px solid #007bff; }
+    .result pre { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+    .progress { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin: 10px 0; }
+    .progress-bar { height: 100%; background: linear-gradient(90deg, #007bff, #00d4ff); transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; }
+    .sse-events { height: 300px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+    .sse-events .event { margin-bottom: 5px; padding: 5px; border-bottom: 1px solid #333; }
+    .ws-messages { height: 300px; overflow-y: auto; background: #1e1e1e; color: #d4d4d4; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+    .ws-messages .message { margin-bottom: 5px; padding: 5px; }
+    .ws-messages .sent { color: #4ec9b0; }
+    .ws-messages .received { color: #ce9178; }
+    .file-list { margin-top: 10px; }
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 5px; }
+    .file-item .info { flex: 1; }
+    .file-item .actions { display: flex; gap: 5px; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 12px; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .status.pending { background: #fff3cd; color: #856404; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+    .card { background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .card h4 { margin-bottom: 10px; color: #333; }
+    .endpoint { background: #f8f9fa; padding: 8px; border-radius: 4px; margin-bottom: 8px; font-family: monospace; font-size: 13px; }
+    .endpoint .method { display: inline-block; padding: 2px 6px; border-radius: 3px; font-weight: bold; margin-right: 8px; }
+    .endpoint .method.get { background: #61affe; color: #fff; }
+    .endpoint .method.post { background: #49cc90; color: #fff; }
+    .endpoint .method.put { background: #fca130; color: #fff; }
+    .endpoint .method.delete { background: #f93e3e; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 Node.js API 测试页面</h1>
+    
+    <div class="tabs">
+      <div class="tab active" data-tab="rest">RESTful API</div>
+      <div class="tab" data-tab="upload">文件上传</div>
+      <div class="tab" data-tab="chunk">分片上传</div>
+      <div class="tab" data-tab="resume">断点续传</div>
+      <div class="tab" data-tab="sse">SSE</div>
+      <div class="tab" data-tab="ws">WebSocket</div>
+      <div class="tab" data-tab="docs">API 文档</div>
+    </div>
+
+    <div id="rest" class="panel active">
+      <div class="grid">
+        <div class="card">
+          <h4>用户管理</h4>
+          <div class="section">
+            <h3>GET - 获取用户列表</h3>
+            <div class="form-group">
+              <label>姓名筛选:</label>
+              <input type="text" id="userName" placeholder="输入姓名筛选">
+            </div>
+            <button class="btn" onclick="getUsers()">获取用户列表</button>
+            <div id="usersResult" class="result" style="display:none;"></div>
+          </div>
+          <div class="section">
+            <h3>POST - 创建用户</h3>
+            <div class="form-group">
+              <label>姓名:</label>
+              <input type="text" id="newUserName" placeholder="输入姓名">
+            </div>
+            <div class="form-group">
+              <label>邮箱:</label>
+              <input type="email" id="newUserEmail" placeholder="输入邮箱">
+            </div>
+            <div class="form-group">
+              <label>年龄:</label>
+              <input type="number" id="newUserAge" placeholder="输入年龄">
+            </div>
+            <button class="btn btn-success" onclick="createUser()">创建用户</button>
+            <div id="createResult" class="result" style="display:none;"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h4>用户操作</h4>
+          <div class="section">
+            <h3>GET - 获取单个用户</h3>
+            <div class="form-group">
+              <label>用户ID:</label>
+              <input type="text" id="userId" placeholder="输入用户ID">
+            </div>
+            <button class="btn" onclick="getUser()">获取用户</button>
+          </div>
+          <div class="section">
+            <h3>PUT - 更新用户</h3>
+            <div class="form-group">
+              <label>用户ID:</label>
+              <input type="text" id="updateUserId" placeholder="输入用户ID">
+            </div>
+            <div class="form-group">
+              <label>姓名:</label>
+              <input type="text" id="updateUserName" placeholder="输入新姓名">
+            </div>
+            <div class="form-group">
+              <label>邮箱:</label>
+              <input type="email" id="updateUserEmail" placeholder="输入新邮箱">
+            </div>
+            <button class="btn btn-success" onclick="updateUser()">更新用户</button>
+          </div>
+          <div class="section">
+            <h3>DELETE - 删除用户</h3>
+            <div class="form-group">
+              <label>用户ID:</label>
+              <input type="text" id="deleteUserId" placeholder="输入用户ID">
+            </div>
+            <button class="btn btn-danger" onclick="deleteUser()">删除用户</button>
+          </div>
+          <div id="userResult" class="result" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="upload" class="panel">
+      <div class="grid">
+        <div class="card">
+          <h4>单文件上传</h4>
+          <div class="section">
+            <div class="form-group">
+              <label>选择文件:</label>
+              <input type="file" id="singleFile">
+            </div>
+            <button class="btn btn-success" onclick="uploadSingleFile()">上传文件</button>
+            <div id="singleUploadResult" class="result" style="display:none;"></div>
+          </div>
+        </div>
+        <div class="card">
+          <h4>多文件上传</h4>
+          <div class="section">
+            <div class="form-group">
+              <label>选择多个文件:</label>
+              <input type="file" id="multipleFiles" multiple>
+            </div>
+            <button class="btn btn-success" onclick="uploadMultipleFiles()">上传文件</button>
+            <div id="multipleUploadResult" class="result" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="chunk" class="panel">
+      <div class="card">
+        <h4>分片上传（支持秒传）</h4>
+        <div class="section">
+          <div class="form-group">
+            <label>选择文件:</label>
+            <input type="file" id="chunkFile">
+          </div>
+          <div class="form-group">
+            <label>分片大小 (MB):</label>
+            <input type="number" id="chunkSize" value="5" min="1" max="50">
+          </div>
+          <button class="btn btn-success" onclick="startChunkUpload()">开始分片上传</button>
+          <button class="btn btn-danger" onclick="cancelChunkUpload()">取消上传</button>
+          <div class="progress" id="chunkProgress" style="display:none;">
+            <div class="progress-bar" id="chunkProgressBar">0%</div>
+          </div>
+          <div id="chunkResult" class="result" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="resume" class="panel">
+      <div class="card">
+        <h4>断点续传</h4>
+        <div class="section">
+          <div class="form-group">
+            <label>选择文件:</label>
+            <input type="file" id="resumeFile">
+          </div>
+          <button class="btn btn-success" onclick="initResumeUpload()">初始化上传</button>
+          <button class="btn" onclick="checkResumeStatus()">检查上传状态</button>
+          <div class="progress" id="resumeProgress" style="display:none;">
+            <div class="progress-bar" id="resumeProgressBar">0%</div>
+          </div>
+          <div id="resumeResult" class="result" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sse" class="panel">
+      <div class="card">
+        <h4>Server-Sent Events (SSE)</h4>
+        <div class="section">
+          <button class="btn btn-success" onclick="connectSSE()">连接 SSE</button>
+          <button class="btn btn-danger" onclick="disconnectSSE()">断开连接</button>
+          <div class="form-group" style="margin-top:15px;">
+            <label>自定义事件名称:</label>
+            <input type="text" id="sseEventName" value="message" placeholder="事件名称">
+          </div>
+          <button class="btn" onclick="connectCustomSSE()">连接自定义事件</button>
+        </div>
+        <div class="sse-events" id="sseEvents">
+          <div class="event">等待连接...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="ws" class="panel">
+      <div class="card">
+        <h4>WebSocket</h4>
+        <div class="section">
+          <button class="btn btn-success" onclick="connectWS()">连接 WebSocket</button>
+          <button class="btn btn-danger" onclick="disconnectWS()">断开连接</button>
+          <span id="wsStatus" class="status pending" style="margin-left:10px;">未连接</span>
+        </div>
+        <div class="section">
+          <div class="form-group">
+            <label>消息类型:</label>
+            <select id="wsMessageType">
+              <option value="echo">Echo (回显)</option>
+              <option value="broadcast">Broadcast (广播)</option>
+              <option value="ping">Ping (心跳)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>消息内容:</label>
+            <input type="text" id="wsMessage" placeholder="输入消息内容">
+          </div>
+          <button class="btn" onclick="sendWSMessage()">发送消息</button>
+        </div>
+        <div class="ws-messages" id="wsMessages">
+          <div class="message">等待连接...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="docs" class="panel">
+      <div class="card">
+        <h4>API 接口文档</h4>
+        <div class="section">
+          <h3>RESTful API</h3>
+          <div class="endpoint"><span class="method get">GET</span>/api/users - 获取用户列表</div>
+          <div class="endpoint"><span class="method get">GET</span>/api/users/:id - 获取单个用户</div>
+          <div class="endpoint"><span class="method post">POST</span>/api/users - 创建用户</div>
+          <div class="endpoint"><span class="method put">PUT</span>/api/users/:id - 更新用户</div>
+          <div class="endpoint"><span class="method delete">DELETE</span>/api/users/:id - 删除用户</div>
+          <div class="endpoint"><span class="method post">PATCH</span>/api/users/:id - 部分更新用户</div>
+        </div>
+        <div class="section">
+          <h3>文件上传</h3>
+          <div class="endpoint"><span class="method post">POST</span>/upload/single - 单文件上传</div>
+          <div class="endpoint"><span class="method post">POST</span>/upload/multiple - 多文件上传</div>
+          <div class="endpoint"><span class="method get">GET</span>/upload/info/:fileId - 获取文件信息</div>
+          <div class="endpoint"><span class="method delete">DELETE</span>/upload/:fileId - 删除文件</div>
+        </div>
+        <div class="section">
+          <h3>分片上传</h3>
+          <div class="endpoint"><span class="method post">POST</span>/chunk/init - 初始化分片上传</div>
+          <div class="endpoint"><span class="method post">POST</span>/chunk/upload - 上传分片</div>
+          <div class="endpoint"><span class="method post">POST</span>/chunk/merge - 合并分片</div>
+          <div class="endpoint"><span class="method post">POST</span>/chunk/verify - 秒传验证</div>
+          <div class="endpoint"><span class="method get">GET</span>/chunk/status/:uploadId - 获取上传状态</div>
+        </div>
+        <div class="section">
+          <h3>断点续传</h3>
+          <div class="endpoint"><span class="method post">POST</span>/resume/init - 初始化上传</div>
+          <div class="endpoint"><span class="method post">POST</span>/resume/upload - 上传数据块</div>
+          <div class="endpoint"><span class="method post">POST</span>/resume/complete - 完成上传</div>
+          <div class="endpoint"><span class="method get">GET</span>/resume/status/:fileId - 获取上传状态</div>
+        </div>
+        <div class="section">
+          <h3>SSE (Server-Sent Events)</h3>
+          <div class="endpoint"><span class="method get">GET</span>/sse/events - SSE 事件流</div>
+          <div class="endpoint"><span class="method get">GET</span>/sse/custom - 自定义事件流</div>
+        </div>
+        <div class="section">
+          <h3>WebSocket</h3>
+          <div class="endpoint"><span class="method get">WS</span>ws://localhost:3000 - WebSocket 连接</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+  <script>
+    const API_BASE = 'http://localhost:3000';
+    let sseConnection = null;
+    let wsConnection = null;
+    let currentChunkUploadId = null;
+    let currentResumeFileId = null;
+
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    async function getUsers() {
+      const name = document.getElementById('userName').value;
+      const url = `${API_BASE}/api/users${name ? `?name=${encodeURIComponent(name)}` : ''}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      showResult('usersResult', data);
+    }
+
+    async function getUser() {
+      const id = document.getElementById('userId').value;
+      if (!id) return alert('请输入用户ID');
+      const res = await fetch(`${API_BASE}/api/users/${id}`);
+      const data = await res.json();
+      showResult('userResult', data);
+    }
+
+    async function createUser() {
+      const name = document.getElementById('newUserName').value;
+      const email = document.getElementById('newUserEmail').value;
+      const age = document.getElementById('newUserAge').value;
+      if (!name || !email) return alert('请填写姓名和邮箱');
+      const res = await fetch(`${API_BASE}/api/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, age: age ? parseInt(age) : null })
+      });
+      const data = await res.json();
+      showResult('createResult', data);
+    }
+
+    async function updateUser() {
+      const id = document.getElementById('updateUserId').value;
+      const name = document.getElementById('updateUserName').value;
+      const email = document.getElementById('updateUserEmail').value;
+      if (!id) return alert('请输入用户ID');
+      const res = await fetch(`${API_BASE}/api/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email })
+      });
+      const data = await res.json();
+      showResult('userResult', data);
+    }
+
+    async function deleteUser() {
+      const id = document.getElementById('deleteUserId').value;
+      if (!id) return alert('请输入用户ID');
+      const res = await fetch(`${API_BASE}/api/users/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      showResult('userResult', data);
+    }
+
+    async function uploadSingleFile() {
+      const file = document.getElementById('singleFile').files[0];
+      if (!file) return alert('请选择文件');
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch(`${API_BASE}/upload/single`, { method: 'POST', body: formData });
+      const data = await res.json();
+      showResult('singleUploadResult', data);
+    }
+
+    async function uploadMultipleFiles() {
+      const files = document.getElementById('multipleFiles').files;
+      if (!files.length) return alert('请选择文件');
+      const formData = new FormData();
+      for (const file of files) formData.append('files', file);
+      const res = await fetch(`${API_BASE}/upload/multiple`, { method: 'POST', body: formData });
+      const data = await res.json();
+      showResult('multipleUploadResult', data);
+    }
+
+    async function calculateFileHash(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        const spark = new SparkMD5.ArrayBuffer();
+        reader.onload = (e) => {
+          spark.append(e.target.result);
+          resolve(spark.end());
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    async function startChunkUpload() {
+      const file = document.getElementById('chunkFile').files[0];
+      if (!file) return alert('请选择文件');
+      const chunkSize = parseInt(document.getElementById('chunkSize').value) * 1024 * 1024;
+      document.getElementById('chunkProgress').style.display = 'block';
+      updateProgress('chunkProgressBar', 0);
+      const fileHash = await calculateFileHash(file);
+      const verifyRes = await fetch(`${API_BASE}/chunk/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileHash, filename: file.name, fileSize: file.size })
+      });
+      const verifyData = await verifyRes.json();
+      if (verifyData.data && verifyData.data.exists) {
+        showResult('chunkResult', { message: '秒传成功！', ...verifyData });
+        updateProgress('chunkProgressBar', 100);
+        return;
+      }
+      const initRes = await fetch(`${API_BASE}/chunk/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, fileSize: file.size, chunkSize, fileHash })
+      });
+      const initData = await initRes.json();
+      if (!initData.success) { showResult('chunkResult', initData); return; }
+      currentChunkUploadId = initData.data.uploadId;
+      const totalChunks = initData.data.totalChunks;
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunk = file.slice(start, end);
+        const formData = new FormData();
+        formData.append('uploadId', currentChunkUploadId);
+        formData.append('chunkIndex', i);
+        formData.append('chunk', chunk);
+        await fetch(`${API_BASE}/chunk/upload`, { method: 'POST', body: formData });
+        updateProgress('chunkProgressBar', Math.round(((i + 1) / totalChunks) * 100));
+      }
+      const mergeRes = await fetch(`${API_BASE}/chunk/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uploadId: currentChunkUploadId, filename: file.name, fileHash })
+      });
+      const mergeData = await mergeRes.json();
+      showResult('chunkResult', mergeData);
+    }
+
+    function cancelChunkUpload() {
+      if (currentChunkUploadId) {
+        fetch(`${API_BASE}/chunk/cancel/${currentChunkUploadId}`, { method: 'DELETE' });
+        currentChunkUploadId = null;
+        document.getElementById('chunkProgress').style.display = 'none';
+        showResult('chunkResult', { message: '上传已取消' });
+      }
+    }
+
+    async function initResumeUpload() {
+      const file = document.getElementById('resumeFile').files[0];
+      if (!file) return alert('请选择文件');
+      const fileHash = await calculateFileHash(file);
+      const initRes = await fetch(`${API_BASE}/resume/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, fileSize: file.size, fileHash })
+      });
+      const initData = await initRes.json();
+      if (initData.data && initData.data.instantUpload) {
+        showResult('resumeResult', { message: '秒传成功！', ...initData });
+        return;
+      }
+      currentResumeFileId = initData.data.fileId;
+      document.getElementById('resumeProgress').style.display = 'block';
+      await uploadResumeChunks(file, currentResumeFileId);
+    }
+
+    async function uploadResumeChunks(file, fileId) {
+      const chunkSize = 1024 * 1024;
+      let uploadedSize = 0;
+      const statusRes = await fetch(`${API_BASE}/resume/status/${fileId}`);
+      const statusData = await statusRes.json();
+      uploadedSize = statusData.data ? statusData.data.uploadedSize : 0;
+      updateProgress('resumeProgressBar', Math.round((uploadedSize / file.size) * 100));
+      while (uploadedSize < file.size) {
+        const chunk = file.slice(uploadedSize, Math.min(uploadedSize + chunkSize, file.size));
+        const formData = new FormData();
+        formData.append('fileId', fileId);
+        formData.append('start', uploadedSize);
+        formData.append('data', chunk);
+        const res = await fetch(`${API_BASE}/resume/upload`, { method: 'POST', body: formData });
+        const data = await res.json();
+        if (data.success) {
+          uploadedSize = data.data.uploadedSize;
+          updateProgress('resumeProgressBar', data.data.progress);
+        } else { showResult('resumeResult', data); return; }
+      }
+      const completeRes = await fetch(`${API_BASE}/resume/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId })
+      });
+      const completeData = await completeRes.json();
+      showResult('resumeResult', completeData);
+    }
+
+    async function checkResumeStatus() {
+      if (!currentResumeFileId) { showResult('resumeResult', { message: '没有进行中的上传' }); return; }
+      const res = await fetch(`${API_BASE}/resume/status/${currentResumeFileId}`);
+      const data = await res.json();
+      showResult('resumeResult', data);
+    }
+
+    function connectSSE() {
+      if (sseConnection) sseConnection.close();
+      const eventsDiv = document.getElementById('sseEvents');
+      eventsDiv.innerHTML = '';
+      sseConnection = new EventSource(`${API_BASE}/sse/events`);
+      sseConnection.onopen = () => addSSEEvent('已连接到 SSE 服务');
+      sseConnection.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        addSSEEvent(`[${data.type}] ${JSON.stringify(data)}`);
+      };
+      sseConnection.onerror = () => addSSEEvent('连接错误或已断开');
+    }
+
+    function connectCustomSSE() {
+      if (sseConnection) sseConnection.close();
+      const eventName = document.getElementById('sseEventName').value || 'message';
+      const eventsDiv = document.getElementById('sseEvents');
+      eventsDiv.innerHTML = '';
+      sseConnection = new EventSource(`${API_BASE}/sse/custom?event=${eventName}`);
+      sseConnection.addEventListener(eventName, (event) => {
+        const data = JSON.parse(event.data);
+        addSSEEvent(`[${eventName}] ${JSON.stringify(data)}`);
+      });
+      sseConnection.onerror = () => addSSEEvent('连接错误或已断开');
+    }
+
+    function disconnectSSE() {
+      if (sseConnection) { sseConnection.close(); sseConnection = null; addSSEEvent('已断开连接'); }
+    }
+
+    function addSSEEvent(text) {
+      const eventsDiv = document.getElementById('sseEvents');
+      const eventDiv = document.createElement('div');
+      eventDiv.className = 'event';
+      eventDiv.textContent = `${new Date().toLocaleTimeString()} - ${text}`;
+      eventsDiv.appendChild(eventDiv);
+      eventsDiv.scrollTop = eventsDiv.scrollHeight;
+    }
+
+    function connectWS() {
+      if (wsConnection) wsConnection.close();
+      wsConnection = new WebSocket(`ws://localhost:3000`);
+      wsConnection.onopen = () => { updateWSStatus('success', '已连接'); addWSMessage('已连接到 WebSocket 服务', 'sent'); };
+      wsConnection.onmessage = (event) => { const data = JSON.parse(event.data); addWSMessage(JSON.stringify(data), 'received'); };
+      wsConnection.onclose = () => { updateWSStatus('error', '已断开'); addWSMessage('连接已关闭', 'received'); };
+      wsConnection.onerror = () => updateWSStatus('error', '连接错误');
+    }
+
+    function disconnectWS() {
+      if (wsConnection) { wsConnection.close(); wsConnection = null; updateWSStatus('pending', '未连接'); }
+    }
+
+    function sendWSMessage() {
+      if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) return alert('请先连接 WebSocket');
+      const type = document.getElementById('wsMessageType').value;
+      const message = document.getElementById('wsMessage').value;
+      const data = { type, payload: message };
+      wsConnection.send(JSON.stringify(data));
+      addWSMessage(`发送: ${JSON.stringify(data)}`, 'sent');
+    }
+
+    function updateWSStatus(className, text) {
+      const status = document.getElementById('wsStatus');
+      status.className = `status ${className}`;
+      status.textContent = text;
+    }
+
+    function addWSMessage(text, type) {
+      const messagesDiv = document.getElementById('wsMessages');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `message ${type}`;
+      msgDiv.textContent = `${new Date().toLocaleTimeString()} - ${text}`;
+      messagesDiv.appendChild(msgDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function showResult(elementId, data) {
+      const element = document.getElementById(elementId);
+      element.style.display = 'block';
+      element.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+    }
+
+    function updateProgress(elementId, percent) {
+      const bar = document.getElementById(elementId);
+      bar.style.width = `${percent}%`;
+      bar.textContent = `${percent}%`;
+    }
+  </script>
+</body>
+</html>

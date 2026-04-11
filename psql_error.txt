@@ -1,0 +1,2 @@
+psql: 警告: 忽略多余的命令行参数 "1"
+psql: 错误: 连接到"localhost" (::1)上的服务器，端口5432失败：致命错误:  用户 "postgres" Password 认证失败
