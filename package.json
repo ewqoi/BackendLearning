@@ -9,7 +9,10 @@
     "test": "node test-api.js",
     "db:init": "node scripts/init-db.js",
     "db:migrate": "npx sequelize-cli db:migrate",
-    "db:seed": "npx sequelize-cli db:seed:all"
+    "db:seed": "npx sequelize-cli db:seed:all",
+    "vercel:dev": "vercel dev",
+    "vercel:deploy": "vercel deploy",
+    "vercel:prod": "vercel deploy --prod"
   },
   "keywords": [
     "nodejs",
