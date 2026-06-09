@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const dataStore = require('../utils/dataStore');
+const prisma = require('../lib/prisma');
 const ApiResponse = require('../utils/response');
 const { AppError, asyncHandler } = require('../utils/error');
 const { validate, commonRules } = require('../utils/validator');
@@ -26,53 +26,50 @@ const validatePagination = validate(commonRules.pagination());
 router.get('/users', validatePagination, asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, name, email, minAge, maxAge, sortBy = 'id', sortOrder = 'asc' } = req.query;
   
-  const data = await dataStore.readData();
-  let filteredUsers = [...data.users];
+  // Build where conditions
+  const where = {};
   
   if (name) {
-    filteredUsers = filteredUsers.filter(user => 
-      user.name.toLowerCase().includes(name.toLowerCase())
-    );
+    where.name = { contains: name, mode: 'insensitive' };
   }
   
   if (email) {
-    filteredUsers = filteredUsers.filter(user => 
-      user.email.toLowerCase().includes(email.toLowerCase())
-    );
+    where.email = { contains: email, mode: 'insensitive' };
   }
   
-  if (minAge) {
-    filteredUsers = filteredUsers.filter(user => user.age >= parseInt(minAge));
+  if (minAge || maxAge) {
+    where.age = {};
+    if (minAge) where.age.gte = parseInt(minAge);
+    if (maxAge) where.age.lte = parseInt(maxAge);
   }
   
-  if (maxAge) {
-    filteredUsers = filteredUsers.filter(user => user.age <= parseInt(maxAge));
-  }
-  
+  // Build order by
   const validSortFields = ['id', 'name', 'age', 'createdAt', 'updatedAt'];
-  const sortField = validSortFields.includes(sortBy) ? sortBy : 'id';
-  const order = sortOrder === 'desc' ? -1 : 1;
+  const orderByField = validSortFields.includes(sortBy) ? sortBy : 'id';
+  const orderBy = { [orderByField]: sortOrder === 'desc' ? 'desc' : 'asc' };
   
-  filteredUsers.sort((a, b) => {
-    if (a[sortField] < b[sortField]) return -1 * order;
-    if (a[sortField] > b[sortField]) return 1 * order;
-    return 0;
+  // Get total count
+  const total = await prisma.user.count({ where });
+  
+  // Get paginated users
+  const users = await prisma.user.findMany({
+    where,
+    orderBy,
+    skip: (parseInt(page) - 1) * parseInt(limit),
+    take: parseInt(limit),
   });
-  
-  const total = filteredUsers.length;
-  const startIndex = (parseInt(page) - 1) * parseInt(limit);
-  const endIndex = startIndex + parseInt(limit);
-  const paginatedUsers = filteredUsers.slice(startIndex, endIndex);
   
   logger.info(`获取用户列表: 共 ${total} 条记录, 第 ${page} 页`);
   
-  res.json(ApiResponse.paginated(paginatedUsers, total, page, limit));
+  res.json(ApiResponse.paginated(users, total, page, limit));
 }));
 
 router.get('/users/:id', validateId, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
-  const user = await dataStore.getUserById(parseInt(id));
+  const user = await prisma.user.findUnique({
+    where: { id: parseInt(id) },
+  });
   
   if (!user) {
     throw AppError.notFound(`用户 ID ${id} 不存在`);
@@ -86,54 +83,62 @@ router.get('/users/:id', validateId, asyncHandler(async (req, res) => {
 router.post('/users', validateUserCreate, asyncHandler(async (req, res) => {
   const { name, email, age } = req.body;
   
-  const data = await dataStore.readData();
+  // Check if user already exists
+  const existingUser = await prisma.user.findUnique({
+    where: { email: email.toLowerCase().trim() },
+  });
   
-  const existingUser = data.users.find(u => u.email.toLowerCase() === email.toLowerCase());
   if (existingUser) {
     throw AppError.conflict('该邮箱已被注册');
   }
   
-  const newUser = {
-    name: name.trim(),
-    email: email.toLowerCase().trim(),
-    age: parseInt(age),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+  // Create new user
+  const newUser = await prisma.user.create({
+    data: {
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      age: age ? parseInt(age) : null,
+    },
+  });
   
-  const createdUser = await dataStore.createUser(newUser);
+  logger.info(`创建用户: ID ${newUser.id}, 邮箱: ${maskEmail(email)}`);
   
-  logger.info(`创建用户: ID ${createdUser.id}, 邮箱: ${maskEmail(email)}`);
-  
-  res.status(201).json(ApiResponse.created(createdUser, '用户创建成功'));
+  res.status(201).json(ApiResponse.created(newUser, '用户创建成功'));
 }));
 
 router.put('/users/:id', validateId, validateUserUpdate, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { name, email, age } = req.body;
   
-  const user = await dataStore.getUserById(parseInt(id));
-  if (!user) {
+  // Check if user exists
+  const existingUser = await prisma.user.findUnique({
+    where: { id: parseInt(id) },
+  });
+  
+  if (!existingUser) {
     throw AppError.notFound(`用户 ID ${id} 不存在`);
   }
   
-  if (email && email.toLowerCase() !== user.email.toLowerCase()) {
-    const data = await dataStore.readData();
-    const existingUser = data.users.find(u => 
-      u.email.toLowerCase() === email.toLowerCase() && u.id !== parseInt(id)
-    );
-    if (existingUser) {
+  // Check if email is being changed to an existing email
+  if (email && email.toLowerCase() !== existingUser.email.toLowerCase()) {
+    const emailConflict = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+    if (emailConflict) {
       throw AppError.conflict('该邮箱已被其他用户使用');
     }
   }
   
+  // Update user
   const updateData = {};
   if (name) updateData.name = name.trim();
   if (email) updateData.email = email.toLowerCase().trim();
   if (age !== undefined) updateData.age = parseInt(age);
-  updateData.updatedAt = new Date().toISOString();
   
-  const updatedUser = await dataStore.updateUser(parseInt(id), updateData);
+  const updatedUser = await prisma.user.update({
+    where: { id: parseInt(id) },
+    data: updateData,
+  });
   
   logger.info(`更新用户: ID ${id}`);
   
@@ -157,17 +162,21 @@ router.patch('/users/:id', validateId, asyncHandler(async (req, res) => {
     throw AppError.badRequest('没有有效的更新字段');
   }
   
-  const user = await dataStore.getUserById(parseInt(id));
-  if (!user) {
+  // Check if user exists
+  const existingUser = await prisma.user.findUnique({
+    where: { id: parseInt(id) },
+  });
+  
+  if (!existingUser) {
     throw AppError.notFound(`用户 ID ${id} 不存在`);
   }
   
+  // Check email conflict
   if (filteredUpdates.email) {
-    const data = await dataStore.readData();
-    const existingUser = data.users.find(u => 
-      u.email.toLowerCase() === filteredUpdates.email.toLowerCase() && u.id !== parseInt(id)
-    );
-    if (existingUser) {
+    const emailConflict = await prisma.user.findUnique({
+      where: { email: filteredUpdates.email.toLowerCase().trim() },
+    });
+    if (emailConflict && emailConflict.id !== parseInt(id)) {
       throw AppError.conflict('该邮箱已被其他用户使用');
     }
     filteredUpdates.email = filteredUpdates.email.toLowerCase().trim();
@@ -181,9 +190,10 @@ router.patch('/users/:id', validateId, asyncHandler(async (req, res) => {
     filteredUpdates.age = parseInt(filteredUpdates.age);
   }
   
-  filteredUpdates.updatedAt = new Date().toISOString();
-  
-  const updatedUser = await dataStore.updateUser(parseInt(id), filteredUpdates);
+  const updatedUser = await prisma.user.update({
+    where: { id: parseInt(id) },
+    data: filteredUpdates,
+  });
   
   logger.info(`部分更新用户: ID ${id}, 字段: ${Object.keys(filteredUpdates).join(', ')}`);
   
@@ -193,15 +203,20 @@ router.patch('/users/:id', validateId, asyncHandler(async (req, res) => {
 router.delete('/users/:id', validateId, asyncHandler(async (req, res) => {
   const { id } = req.params;
   
-  const deletedUser = await dataStore.deleteUser(parseInt(id));
-  
-  if (!deletedUser) {
-    throw AppError.notFound(`用户 ID ${id} 不存在`);
+  try {
+    const deletedUser = await prisma.user.delete({
+      where: { id: parseInt(id) },
+    });
+    
+    logger.info(`删除用户: ID ${id}`);
+    
+    res.json(ApiResponse.success({ id: deletedUser.id }, '用户删除成功'));
+  } catch (error) {
+    if (error.code === 'P2025') {
+      throw AppError.notFound(`用户 ID ${id} 不存在`);
+    }
+    throw error;
   }
-  
-  logger.info(`删除用户: ID ${id}`);
-  
-  res.json(ApiResponse.success({ id: deletedUser.id }, '用户删除成功'));
 }));
 
 router.get('/users/search/:keyword', asyncHandler(async (req, res) => {
@@ -212,44 +227,66 @@ router.get('/users/search/:keyword', asyncHandler(async (req, res) => {
     throw AppError.badRequest('搜索关键词不能为空');
   }
   
-  const matchedUsers = await dataStore.searchUsers(keyword);
+  const where = {
+    OR: [
+      { name: { contains: keyword, mode: 'insensitive' } },
+      { email: { contains: keyword, mode: 'insensitive' } },
+    ],
+  };
   
-  const total = matchedUsers.length;
-  const startIndex = (parseInt(page) - 1) * parseInt(limit);
-  const paginatedUsers = matchedUsers.slice(startIndex, startIndex + parseInt(limit));
+  const total = await prisma.user.count({ where });
+  
+  const users = await prisma.user.findMany({
+    where,
+    skip: (parseInt(page) - 1) * parseInt(limit),
+    take: parseInt(limit),
+    orderBy: { id: 'asc' },
+  });
   
   logger.info(`搜索用户: 关键词 "${keyword}", 找到 ${total} 条记录`);
   
-  res.json(ApiResponse.paginated(paginatedUsers, total, page, limit));
+  res.json(ApiResponse.paginated(users, total, page, limit));
 }));
 
 router.get('/users/stats', asyncHandler(async (req, res) => {
-  const data = await dataStore.readData();
-  const users = data.users;
+  const total = await prisma.user.count();
+  
+  // Get all users for statistics
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      name: true,
+      age: true,
+      createdAt: true,
+    },
+  });
+  
+  const usersWithAge = users.filter(u => u.age !== null);
   
   const stats = {
-    total: users.length,
-    averageAge: users.length > 0 
-      ? Math.round(users.reduce((sum, u) => sum + u.age, 0) / users.length) 
+    total: total,
+    averageAge: usersWithAge.length > 0 
+      ? Math.round(usersWithAge.reduce((sum, u) => sum + u.age, 0) / usersWithAge.length) 
       : 0,
     ageGroups: {
-      under18: users.filter(u => u.age < 18).length,
-      '18to30': users.filter(u => u.age >= 18 && u.age <= 30).length,
-      '31to50': users.filter(u => u.age >= 31 && u.age <= 50).length,
-      over50: users.filter(u => u.age > 50).length
+      under18: users.filter(u => u.age !== null && u.age < 18).length,
+      '18to30': users.filter(u => u.age !== null && u.age >= 18 && u.age <= 30).length,
+      '31to50': users.filter(u => u.age !== null && u.age >= 31 && u.age <= 50).length,
+      over50: users.filter(u => u.age !== null && u.age > 50).length,
+      unknown: users.filter(u => u.age === null).length,
     },
     recentUsers: users
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 5)
-      .map(u => ({ id: u.id, name: u.name, createdAt: u.createdAt }))
+      .map(u => ({ id: u.id, name: u.name, createdAt: u.createdAt })),
   };
   
   res.json(ApiResponse.success(stats));
 }));
 
 router.head('/users', asyncHandler(async (req, res) => {
-  const data = await dataStore.readData();
-  res.set('X-Total-Count', data.users.length);
+  const total = await prisma.user.count();
+  res.set('X-Total-Count', total);
   res.set('X-Resource-Type', 'users');
   res.status(200).end();
 }));

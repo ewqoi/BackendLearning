@@ -10,6 +10,11 @@
     "db:init": "node scripts/init-db.js",
     "db:migrate": "npx sequelize-cli db:migrate",
     "db:seed": "npx sequelize-cli db:seed:all",
+    "prisma:generate": "prisma generate",
+    "prisma:push": "prisma db push",
+    "prisma:studio": "prisma studio",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:format": "prisma format",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel deploy",
     "vercel:prod": "vercel deploy --prod"
@@ -24,12 +29,14 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@prisma/client": "^7.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.1",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
     "pg": "^8.20.0",
     "pg-hstore": "^2.3.4",
+    "prisma": "^7.8.0",
     "sequelize": "^6.37.8",
     "uuid": "^9.0.0",
     "ws": "^8.14.2"

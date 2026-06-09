@@ -22,10 +22,12 @@ data/
 migrations/
 seeders/
 
+# Prisma
+generated/
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
