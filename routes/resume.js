@@ -5,15 +5,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-const uploadsDir = path.join(__dirname, '../uploads');
-const resumeDir = path.join(__dirname, '../resume-uploads');
-const filesInfoDir = path.join(__dirname, '../files-info');
+const { uploadsDir, filesInfoDir, resumeDir, ensureDir, ensureStorageDirs } = require('../utils/storagePaths');
 
-[uploadsDir, resumeDir, filesInfoDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+ensureStorageDirs();
 
 router.get('/status/:fileId', (req, res) => {
   const { fileId } = req.params;

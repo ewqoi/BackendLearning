@@ -23,17 +23,15 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-const uploadsDir = path.join(__dirname, 'uploads');
-const chunksDir = path.join(__dirname, 'chunks');
-const filesInfoDir = path.join(__dirname, 'files-info');
-const resumeDir = path.join(__dirname, 'resume-uploads');
-const logsDir = path.join(__dirname, 'logs');
+const {
+  uploadsDir,
+  chunksDir,
+  filesInfoDir,
+  resumeDir,
+  ensureStorageDirs,
+} = require('./utils/storagePaths');
 
-[uploadsDir, chunksDir, filesInfoDir, resumeDir, logsDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+ensureStorageDirs();
 
 app.use(requestId);
 app.use(securityHeaders);
@@ -253,6 +251,9 @@ async function startServer() {
   }
 }
 
-startServer();
-
-module.exports = { app, server, wss, broadcastToAll };
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  startServer();
+  module.exports = { app, server, wss, broadcastToAll };
+}

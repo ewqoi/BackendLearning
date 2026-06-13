@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const LOG_DIR = path.join(__dirname, '../logs');
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const LOG_DIR = isServerless ? null : path.join(__dirname, '../logs');
 const LOG_LEVELS = {
   DEBUG: 0,
   INFO: 1,
@@ -19,17 +20,18 @@ const LOG_COLORS = {
   RESET: '\x1b[0m'
 };
 
-if (!fs.existsSync(LOG_DIR)) {
+if (LOG_DIR && !fs.existsSync(LOG_DIR)) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
 }
 
 class Logger {
   constructor(options = {}) {
     this.level = options.level || (process.env.NODE_ENV === 'production' ? 'INFO' : 'DEBUG');
-    this.enableFile = options.enableFile !== false;
+    this.enableFile = options.enableFile ?? !isServerless;
     this.enableConsole = options.enableConsole !== false;
-    this.logFile = path.join(LOG_DIR, `app-${new Date().toISOString().split('T')[0]}.log`);
-    this.errorFile = path.join(LOG_DIR, `error-${new Date().toISOString().split('T')[0]}.log`);
+    const logDir = LOG_DIR || '/tmp';
+    this.logFile = path.join(logDir, `app-${new Date().toISOString().split('T')[0]}.log`);
+    this.errorFile = path.join(logDir, `error-${new Date().toISOString().split('T')[0]}.log`);
   }
 
   shouldLog(level) {

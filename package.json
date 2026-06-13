@@ -13,6 +13,7 @@
     "prisma:studio": "prisma studio",
     "prisma:migrate": "prisma migrate dev",
     "prisma:format": "prisma format",
+    "vercel-build": "prisma generate",
     "vercel:dev": "vercel dev",
     "vercel:deploy": "vercel deploy",
     "vercel:prod": "vercel deploy --prod"
@@ -27,6 +28,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.4.1",
