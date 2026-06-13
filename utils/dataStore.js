@@ -1,13 +1,12 @@
-const { User } = require('../models');
-const { Op } = require('sequelize');
+const prisma = require('../lib/prisma');
 const { logger } = require('./logger');
 
 async function readData() {
   try {
-    const users = await User.findAll({
-      order: [['id', 'ASC']]
+    const users = await prisma.user.findMany({
+      orderBy: { id: 'asc' }
     });
-    return { users: users.map(user => user.toJSON()) };
+    return { users };
   } catch (error) {
     logger.error('读取数据失败:', error.message);
     return { users: [] };
@@ -19,11 +18,12 @@ async function writeData(data) {
     if (data && data.users) {
       for (const user of data.users) {
         if (user.id) {
-          await User.update(user, {
-            where: { id: user.id }
+          await prisma.user.update({
+            where: { id: user.id },
+            data: user
           });
         } else {
-          await User.create(user);
+          await prisma.user.create({ data: user });
         }
       }
     }
@@ -36,9 +36,9 @@ async function writeData(data) {
 
 async function getNextId() {
   try {
-    const maxIdUser = await User.findOne({
-      order: [['id', 'DESC']],
-      attributes: ['id']
+    const maxIdUser = await prisma.user.findFirst({
+      orderBy: { id: 'desc' },
+      select: { id: true }
     });
     return maxIdUser ? maxIdUser.id + 1 : 1;
   } catch (error) {
@@ -49,8 +49,8 @@ async function getNextId() {
 
 async function createUser(userData) {
   try {
-    const user = await User.create(userData);
-    return user.toJSON();
+    const user = await prisma.user.create({ data: userData });
+    return user;
   } catch (error) {
     logger.error('创建用户失败:', error.message);
     throw error;
@@ -59,8 +59,8 @@ async function createUser(userData) {
 
 async function getUserById(id) {
   try {
-    const user = await User.findByPk(id);
-    return user ? user.toJSON() : null;
+    const user = await prisma.user.findUnique({ where: { id } });
+    return user || null;
   } catch (error) {
     logger.error('获取用户失败:', error.message);
     return null;
@@ -69,12 +69,15 @@ async function getUserById(id) {
 
 async function updateUser(id, userData) {
   try {
-    const user = await User.findByPk(id);
-    if (!user) return null;
-    
-    await user.update(userData);
-    return user.toJSON();
+    const user = await prisma.user.update({
+      where: { id },
+      data: userData
+    });
+    return user;
   } catch (error) {
+    if (error.code === 'P2025') {
+      return null;
+    }
     logger.error('更新用户失败:', error.message);
     throw error;
   }
@@ -82,12 +85,12 @@ async function updateUser(id, userData) {
 
 async function deleteUser(id) {
   try {
-    const user = await User.findByPk(id);
-    if (!user) return null;
-    
-    await user.destroy();
-    return user.toJSON();
+    const user = await prisma.user.delete({ where: { id } });
+    return user;
   } catch (error) {
+    if (error.code === 'P2025') {
+      return null;
+    }
     logger.error('删除用户失败:', error.message);
     throw error;
   }
@@ -95,23 +98,15 @@ async function deleteUser(id) {
 
 async function searchUsers(keyword) {
   try {
-    const users = await User.findAll({
+    const users = await prisma.user.findMany({
       where: {
-        [Op.or]: [
-          {
-            name: {
-              [Op.iLike]: `%${keyword}%`
-            }
-          },
-          {
-            email: {
-              [Op.iLike]: `%${keyword}%`
-            }
-          }
+        OR: [
+          { name: { contains: keyword, mode: 'insensitive' } },
+          { email: { contains: keyword, mode: 'insensitive' } }
         ]
       }
     });
-    return users.map(user => user.toJSON());
+    return users;
   } catch (error) {
     logger.error('搜索用户失败:', error.message);
     return [];

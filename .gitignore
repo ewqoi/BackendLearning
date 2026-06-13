@@ -31,3 +31,6 @@ generated/
 *.swp
 *.swo
 *~
+
+.vercel
+.env*

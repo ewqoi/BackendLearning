@@ -30,9 +30,18 @@
    - 访问 [Vercel 官网](https://vercel.com/) 注册账号
    - 推荐使用 GitHub 账号登录
 
-2. **准备数据库**
-   - 选择一个免费的 PostgreSQL 服务（推荐 Neon 或 Supabase）
-   - 创建数据库并获取连接信息
+2. **创建 Vercel PostgreSQL 数据库**
+   - 在 Vercel 控制台中，进入你的项目
+   - 点击 "Storage" -> "Create Database"
+   - 选择 "PostgreSQL"，创建数据库
+   - Vercel 会自动配置以下环境变量：
+     - `POSTGRES_URL`
+     - `POSTGRES_URL_NON_POOLING`
+     - `POSTGRES_PRISMA_URL`
+     - `POSTGRES_USER`
+     - `POSTGRES_HOST`
+     - `POSTGRES_PASSWORD`
+     - `POSTGRES_DATABASE`
 
 ### 2. 部署到 Vercel
 
@@ -41,7 +50,7 @@
 1. 登录 Vercel 控制台
 2. 点击 "Add New Project"
 3. 选择 "Import from Git Repository"
-4. 选择你的 GitHub 仓库 `ewqoi/BackendLearning`
+4. 选择你的 GitHub 仓库
 5. 点击 "Import"
 
 #### 方法二：使用 Vercel CLI
@@ -58,196 +67,122 @@
 
 3. **部署项目**
    ```bash
-   # 开发环境部署
-   vercel deploy
-   
-   # 生产环境部署
    vercel deploy --prod
    ```
 
-### 3. 配置项目
-
-1. **项目设置**
-   - 项目名称：BackendLearning
-   - Framework Preset：Other
-   - Root Directory：保持默认
-
-2. **Build & Output Settings**
-   - Build Command：`npm install`
-   - Output Directory：保持默认
-   - Install Command：`npm install`
-   - Development Command：`npm run dev`
-
 ## 环境变量配置
 
-在 Vercel 项目的 "Environment Variables" 中添加以下环境变量：
+### 必需的环境变量
 
-| 变量名 | 值 | 说明 |
-|--------|-----|------|
-| NODE_ENV | production | 运行环境 |
-| PORT | 3000 | 服务端口 |
-| DB_HOST | your_db_host | 数据库主机 |
-| DB_PORT | 5432 | 数据库端口 |
-| DB_NAME | your_db_name | 数据库名称 |
-| DB_USER | your_db_user | 数据库用户 |
-| DB_PASSWORD | your_db_password | 数据库密码 |
-| ENCRYPTION_KEY | your_encryption_key | 加密密钥 |
-| HMAC_SECRET | your_hmac_secret | HMAC 密钥 |
-| REQUEST_SECRET | your_request_secret | 请求签名密钥 |
-| CORS_ORIGIN | * | CORS 源 |
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `NODE_ENV` | 运行环境 | production |
+| `PORT` | 端口 | 3000 |
+| `ENCRYPTION_KEY` | 加密密钥 | 必需设置 |
+| `HMAC_SECRET` | HMAC 密钥 | 必需设置 |
+| `REQUEST_SECRET` | 请求签名密钥 | 必需设置 |
+
+### 数据库环境变量（Vercel PostgreSQL 自动配置）
+
+Vercel PostgreSQL 会自动设置以下环境变量：
+
+- `POSTGRES_URL` - 带连接池的数据库连接 URL
+- `POSTGRES_URL_NON_POOLING` - 不带连接池的数据库连接 URL
+- `POSTGRES_PRISMA_URL` - Prisma 专用连接 URL
+
+### CORS 配置
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `CORS_ORIGIN` | 允许的源 | * |
+| `ALLOWED_ORIGIN` | 允许的来源 | http://localhost:3000 |
 
 ## 数据库配置
 
-### 推荐的免费 PostgreSQL 服务
+### Prisma 配置
 
-#### 1. Neon
+项目使用 Prisma 7.x 作为 ORM，配置文件：
 
-1. 访问 [Neon 官网](https://neon.tech/)
-2. 注册账号并创建项目
-3. 获取连接字符串，格式：
-   ```
-   postgres://user:password@ep-some-name-123456.us-east-2.aws.neon.tech/dbname
-   ```
-4. 从连接字符串中提取：
-   - DB_HOST: ep-some-name-123456.us-east-2.aws.neon.tech
-   - DB_USER: user
-   - DB_PASSWORD: password
-   - DB_NAME: dbname
+- `prisma/schema.prisma` - 数据库模型定义
+- `prisma.config.ts` - Prisma 配置
+- `lib/prisma.js` - Prisma Client 实例
 
-#### 2. Supabase
+### 数据库模型
 
-1. 访问 [Supabase 官网](https://supabase.com/)
-2. 注册账号并创建项目
-3. 在 "Settings" → "Database" 中获取连接信息
-4. 提取所需的数据库连接参数
+当前包含 `User` 模型：
 
-### 数据库初始化
+```prisma
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(50)
+  email     String   @unique @db.VarChar(255)
+  age       Int?     @db.SmallInt
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-部署完成后，需要初始化数据库：
+  @@map("users")
+}
+```
 
-1. 访问 Vercel 部署的应用地址
-2. 运行数据库初始化脚本：
-   ```bash
-   # 使用 Vercel CLI 运行
-   vercel run db:init
-   
-   # 或直接访问 API 端点（如果实现了初始化接口）
-   # GET /api/init-db
-   ```
+### 数据库迁移
+
+在 Vercel 部署时，需要手动运行一次迁移：
+
+```bash
+# 连接到 Vercel 环境
+vercel env pull .env.production
+
+# 运行迁移
+npx prisma migrate deploy
+```
 
 ## 部署完成后
 
-### 访问地址
+1. **测试 API**
+   - 访问 `https://your-project.vercel.app/api/users`
+   - 应该返回空数组或默认用户数据
 
-部署成功后，Vercel 会提供一个域名，格式为：
-- 开发环境：`https://backend-learning-xxx.vercel.app`
-- 生产环境：`https://backend-learning.vercel.app`（如果配置了自定义域名）
+2. **初始化数据库（可选）**
+   - 如果数据库为空，可以运行初始化脚本：
+   ```bash
+   curl -X POST https://your-project.vercel.app/api/users \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Test User","email":"test@example.com","age":25}'
+   ```
 
-### 可用的 API 接口
-
-| 接口 | 地址 | 方法 |
-|------|------|------|
-| 健康检查 | `https://your-vercel-domain.vercel.app/health` | GET |
-| API 信息 | `https://your-vercel-domain.vercel.app/api-info` | GET |
-| 获取所有用户 | `https://your-vercel-domain.vercel.app/api/users` | GET |
-| 获取单个用户 | `https://your-vercel-domain.vercel.app/api/users/:id` | GET |
-| 创建用户 | `https://your-vercel-domain.vercel.app/api/users` | POST |
-| 更新用户 | `https://your-vercel-domain.vercel.app/api/users/:id` | PUT |
-| 删除用户 | `https://your-vercel-domain.vercel.app/api/users/:id` | DELETE |
-| 文件上传 | `https://your-vercel-domain.vercel.app/upload/single` | POST |
-| SSE 事件 | `https://your-vercel-domain.vercel.app/sse/events` | GET |
+3. **查看 Prisma Studio（开发环境）**
+   ```bash
+   npx prisma studio
+   ```
 
 ## 注意事项
 
-### 1. 数据库连接
+### 1. 环境变量安全
+- 敏感信息（如加密密钥）不要提交到 Git
+- 使用 Vercel 环境变量管理敏感配置
 
-- Vercel 是无服务器平台，函数执行完成后会释放资源
-- 确保数据库连接配置正确，使用连接池
-- 对于 Neon 等服务，确保连接字符串包含 sslmode=require
+### 2. 数据库连接
+- Vercel PostgreSQL 要求 SSL 连接
+- 连接池配置已在 `lib/prisma.js` 中处理
 
-### 2. 文件上传
+### 3. 文件上传
+- Vercel Serverless 函数有执行时间限制（最长 10 秒）
+- 大文件上传建议使用分片上传功能
 
-- Vercel 的 Serverless Functions 有 50MB 的请求大小限制
-- 对于大文件上传，建议使用分片上传功能
-- 上传的文件会存储在 Vercel 的临时存储中，建议配置持久化存储
+### 4. 部署日志
+- 可以在 Vercel 控制台查看构建和运行日志
+- 如果部署失败，检查环境变量是否正确配置
 
-### 3. WebSocket
+### 5. 本地开发
 
-- Vercel 的 Serverless Functions 不直接支持 WebSocket
-- 对于 WebSocket 功能，建议使用 Vercel Edge Functions 或第三方服务
-- 可以考虑使用 Socket.io 等库，它会自动降级为轮询
-
-### 4. 环境变量
-
-- 敏感信息（如数据库密码）必须通过环境变量配置
-- 不要在代码中硬编码敏感信息
-- Vercel 会自动加密环境变量
-
-### 5. 部署优化
-
-- 启用 Vercel 的 Edge Network 加速全球访问
-- 配置适当的缓存策略
-- 监控应用性能和错误
-
-## 故障排查
-
-### 1. 部署失败
-
-- 检查 package.json 中的依赖是否正确
-- 确保所有环境变量已配置
-- 查看 Vercel 部署日志
-
-### 2. 数据库连接失败
-
-- 验证数据库连接信息是否正确
-- 检查数据库服务是否可访问
-- 确认数据库防火墙设置
-
-### 3. API 接口无响应
-
-- 检查服务器日志
-- 验证环境变量配置
-- 测试数据库连接
-
-### 4. 文件上传失败
-
-- 检查文件大小是否超过限制
-- 验证上传目录权限
-- 查看上传相关日志
-
-## 快速部署命令
+在本地开发时，需要创建 `.env` 文件：
 
 ```bash
-# 安装 Vercel CLI
-npm install -g vercel
-
-# 登录 Vercel
-vercel login
-
-# 开发环境部署
-vercel deploy
-
-# 生产环境部署
-vercel deploy --prod
-
-# 查看部署状态
-vercel status
-
-# 查看日志
-vercel logs
+cp .env.example .env
 ```
 
-## 部署检查清单
-
-- [ ] Vercel 账号已注册
-- [ ] PostgreSQL 数据库已创建
-- [ ] 环境变量已配置
-- [ ] 项目已部署到 Vercel
-- [ ] 数据库已初始化
-- [ ] API 接口可访问
-- [ ] 安全配置已启用
-- [ ] 监控已设置
+然后编辑 `.env` 文件，配置本地数据库连接信息。
 
 ---
 
-**部署完成后，项目将在 Vercel 上运行，提供全球可访问的 API 服务！** 🚀
+**部署成功后，你就可以通过 Vercel 提供的域名访问你的 API 服务了！**

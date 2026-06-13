@@ -17,8 +17,7 @@ const { corsMiddleware, securityHeaders, requestId } = require('./middleware/cor
 const { apiRateLimit, strictRateLimit, authRateLimit, uploadRateLimit } = require('./middleware/rateLimit');
 const { preventDuplicateSubmit } = require('./middleware/preventDuplicate');
 
-const initDatabase = require('./scripts/init-db');
-const { sequelize } = require('./config/database');
+const prisma = require('./lib/prisma');
 
 const app = express();
 const server = http.createServer(app);
@@ -77,31 +76,31 @@ app.get('/api-info', (req, res) => {
     version: '1.0.0',
     endpoints: {
       rest: {
-        'GET /api/users': '获取用户列表',
-        'GET /api/users/:id': '获取单个用户',
-        'POST /api/users': '创建用户',
-        'PUT /api/users/:id': '更新用户',
-        'DELETE /api/users/:id': '删除用户'
+        'GET /api/users': 'Get all users',
+        'GET /api/users/:id': 'Get user by ID',
+        'POST /api/users': 'Create new user',
+        'PUT /api/users/:id': 'Update user',
+        'DELETE /api/users/:id': 'Delete user'
       },
       fileUpload: {
-        'POST /upload/single': '单文件上传',
-        'POST /upload/multiple': '多文件上传'
+        'POST /upload/single': 'Upload single file',
+        'POST /upload/multiple': 'Upload multiple files'
       },
       chunkUpload: {
-        'POST /chunk/init': '初始化分片上传',
-        'POST /chunk/upload': '上传分片',
-        'POST /chunk/merge': '合并分片',
-        'POST /chunk/verify': '秒传验证'
+        'POST /chunk/init': 'Initialize chunk upload',
+        'POST /chunk/upload': 'Upload chunk',
+        'POST /chunk/merge': 'Merge chunks',
+        'POST /chunk/verify': 'Verify upload'
       },
       resume: {
-        'GET /resume/status/:fileId': '获取上传状态',
-        'POST /resume/upload': '断点续传上传'
+        'GET /resume/status/:fileId': 'Get upload status',
+        'POST /resume/upload': 'Resume upload'
       },
       sse: {
-        'GET /sse/events': 'SSE 事件流'
+        'GET /sse/events': 'SSE Events'
       },
       websocket: {
-        'ws://localhost:3000': 'WebSocket 连接'
+        'ws://localhost:3000': 'WebSocket Connection'
       }
     }
   });
@@ -111,7 +110,6 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 const wss = new WebSocketServer({ server });
-
 const wsClients = new Map();
 
 wss.on('connection', (ws, req) => {
@@ -119,12 +117,10 @@ wss.on('connection', (ws, req) => {
   ws.id = clientId;
   wsClients.set(clientId, ws);
 
-  logger.info(`WebSocket 客户端连接: ${clientId}`);
-
   ws.send(JSON.stringify({
     type: 'connected',
     clientId,
-    message: 'WebSocket 连接成功'
+    message: 'WebSocket connected'
   }));
 
   ws.on('message', (data) => {
@@ -132,17 +128,17 @@ wss.on('connection', (ws, req) => {
       const message = JSON.parse(data.toString());
       handleWebSocketMessage(ws, message);
     } catch (error) {
-      ws.send(JSON.stringify({ type: 'error', message: '无效的消息格式' }));
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
     }
   });
 
   ws.on('close', () => {
-    logger.info(`WebSocket 客户端断开: ${clientId}`);
+    logger.info(`WebSocket disconnected: ${clientId}`);
     wsClients.delete(clientId);
   });
 
   ws.on('error', (error) => {
-    logger.error(`WebSocket 错误: ${error.message}`);
+    logger.error(`WebSocket error: ${error.message}`);
   });
 });
 
@@ -179,7 +175,7 @@ function handleWebSocketMessage(ws, message) {
     default:
       ws.send(JSON.stringify({
         type: 'error',
-        message: `未知的消息类型: ${type}`
+        message: `Unknown message type: ${type}`
       }));
   }
 }
@@ -194,66 +190,64 @@ function broadcastToAll(message) {
 }
 
 process.on('uncaughtException', (error) => {
-  logger.fatal('未捕获的异常', { error: error.message, stack: error.stack });
+  logger.fatal('Uncaught exception', { error: error.message, stack: error.stack });
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('未处理的 Promise 拒绝', { reason });
+  logger.error('Unhandled Rejection', { reason });
 });
 
 process.on('SIGTERM', () => {
-  logger.info('收到 SIGTERM 信号，正在关闭服务器...');
+  logger.info('Received SIGTERM...');
   server.close(() => {
-    logger.info('服务器已关闭');
+    logger.info('Server closed');
     process.exit(0);
   });
 });
 
 process.on('SIGINT', () => {
-  logger.info('收到 SIGINT 信号，正在关闭服务器...');
+  logger.info('Received SIGINT...');
   server.close(() => {
-    logger.info('服务器已关闭');
+    logger.info('Server closed');
     process.exit(0);
   });
 });
 
 async function startServer() {
   try {
-    logger.info('正在初始化数据库...');
-    const dbInitialized = await initDatabase();
-    if (!dbInitialized) {
-      logger.error('数据库初始化失败，服务器启动终止');
-      process.exit(1);
-    }
+    logger.info('Initializing database connection...');
+    
+    await prisma.$connect();
+    logger.info('Database connection successful');
 
     server.listen(PORT, () => {
-      logger.info(`服务器运行在 http://localhost:${PORT}`);
-      logger.info(`WebSocket 服务运行在 ws://localhost:${PORT}`);
+      logger.info(`Server running at http://localhost:${PORT}`);
+      logger.info(`WebSocket server running at ws://localhost:${PORT}`);
       console.log('');
-      console.log('可用的 API 接口:');
-      console.log(`  GET    http://localhost:${PORT}/api/users       - 获取所有用户`);
-      console.log(`  GET    http://localhost:${PORT}/api/users/:id   - 获取单个用户`);
-      console.log(`  POST   http://localhost:${PORT}/api/users       - 创建用户`);
-      console.log(`  PUT    http://localhost:${PORT}/api/users/:id   - 更新用户`);
-      console.log(`  DELETE http://localhost:${PORT}/api/users/:id   - 删除用户`);
+      console.log('REST API Endpoints:');
+      console.log(`  GET    http://localhost:${PORT}/api/users       - Get all users`);
+      console.log(`  GET    http://localhost:${PORT}/api/users/:id   - Get user by ID`);
+      console.log(`  POST   http://localhost:${PORT}/api/users       - Create user`);
+      console.log(`  PUT    http://localhost:${PORT}/api/users/:id   - Update user`);
+      console.log(`  DELETE http://localhost:${PORT}/api/users/:id   - Delete user`);
       console.log('');
-      console.log('文件上传接口:');
-      console.log(`  POST   http://localhost:${PORT}/upload/single   - 单文件上传`);
-      console.log(`  POST   http://localhost:${PORT}/upload/multiple - 多文件上传`);
+      console.log('File Upload:');
+      console.log(`  POST   http://localhost:${PORT}/upload/single   - Upload single file`);
+      console.log(`  POST   http://localhost:${PORT}/upload/multiple - Upload multiple files`);
       console.log('');
-      console.log('分片上传接口:');
-      console.log(`  POST   http://localhost:${PORT}/chunk/init      - 初始化分片上传`);
-      console.log(`  POST   http://localhost:${PORT}/chunk/upload    - 上传分片`);
-      console.log(`  POST   http://localhost:${PORT}/chunk/merge     - 合并分片`);
-      console.log(`  POST   http://localhost:${PORT}/chunk/verify    - 秒传验证`);
+      console.log('Chunk Upload:');
+      console.log(`  POST   http://localhost:${PORT}/chunk/init      - Initialize chunk upload`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/upload    - Upload chunk`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/merge     - Merge chunks`);
+      console.log(`  POST   http://localhost:${PORT}/chunk/verify    - Verify upload`);
       console.log('');
-      console.log('实时通信:');
-      console.log(`  GET    http://localhost:${PORT}/sse/events      - SSE 事件流`);
-      console.log(`  WS     ws://localhost:${PORT}                   - WebSocket 连接`);
+      console.log('Realtime:');
+      console.log(`  GET    http://localhost:${PORT}/sse/events      - SSE Events`);
+      console.log(`  WS     ws://localhost:${PORT}                   - WebSocket Connection`);
     });
   } catch (error) {
-    logger.error('服务器启动失败:', error.message);
+    logger.error('Server startup failed:', error.message);
     logger.error(error.stack);
     process.exit(1);
   }
