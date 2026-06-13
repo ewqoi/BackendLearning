@@ -1,12 +1,10 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "builds": [
     {
       "src": "server.js",
-      "use": "@vercel/node",
-      "config": {
-        "installCommand": "npm install && npx prisma generate"
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -15,8 +13,14 @@
       "dest": "server.js"
     }
   ],
+  "functions": {
+    "server.js": {
+      "maxDuration": 10,
+      "memory": 1024
+    }
+  },
   "env": {
     "NODE_ENV": "production"
   },
-  "regions": ["sfo1", "fra1", "hnd1"]
+  "regions": ["hnd1"]
 }

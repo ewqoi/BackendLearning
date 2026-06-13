@@ -253,6 +253,9 @@ async function startServer() {
   }
 }
 
-startServer();
-
-module.exports = { app, server, wss, broadcastToAll };
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  startServer();
+  module.exports = { app, server, wss, broadcastToAll };
+}
