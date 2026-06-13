@@ -6,14 +6,11 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-const uploadsDir = path.join(__dirname, '../uploads');
-const filesInfoDir = path.join(__dirname, '../files-info');
+const { uploadsDir, filesInfoDir, ensureDir } = require('../utils/storagePaths');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
+    ensureDir(uploadsDir);
     cb(null, uploadsDir);
   },
   filename: (req, file, cb) => {
@@ -62,9 +59,7 @@ function getFileInfo(fileHash) {
 }
 
 function saveFileInfo(fileHash, info) {
-  if (!fs.existsSync(filesInfoDir)) {
-    fs.mkdirSync(filesInfoDir, { recursive: true });
-  }
+  ensureDir(filesInfoDir);
   const infoPath = path.join(filesInfoDir, `${fileHash}.json`);
   fs.writeFileSync(infoPath, JSON.stringify(info, null, 2));
 }

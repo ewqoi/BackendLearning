@@ -23,28 +23,15 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-const isServerless = !!process.env.VERCEL;
-const storageRoot = isServerless ? '/tmp' : __dirname;
+const {
+  uploadsDir,
+  chunksDir,
+  filesInfoDir,
+  resumeDir,
+  ensureStorageDirs,
+} = require('./utils/storagePaths');
 
-const uploadsDir = path.join(storageRoot, 'uploads');
-const chunksDir = path.join(storageRoot, 'chunks');
-const filesInfoDir = path.join(storageRoot, 'files-info');
-const resumeDir = path.join(storageRoot, 'resume-uploads');
-
-if (!isServerless) {
-  const logsDir = path.join(__dirname, 'logs');
-  [uploadsDir, chunksDir, filesInfoDir, resumeDir, logsDir].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  });
-} else {
-  [uploadsDir, chunksDir, filesInfoDir, resumeDir].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  });
-}
+ensureStorageDirs();
 
 app.use(requestId);
 app.use(securityHeaders);

@@ -6,15 +6,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-const chunksDir = path.join(__dirname, '../chunks');
-const uploadsDir = path.join(__dirname, '../uploads');
-const filesInfoDir = path.join(__dirname, '../files-info');
+const { chunksDir, uploadsDir, filesInfoDir, ensureDir, ensureStorageDirs } = require('../utils/storagePaths');
 
-[chunksDir, uploadsDir, filesInfoDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+ensureStorageDirs();
 
 const uploadInfo = new Map();
 
@@ -57,9 +51,7 @@ router.post('/init', (req, res) => {
   });
 
   const uploadDir = path.join(chunksDir, uploadId);
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
+  ensureDir(uploadDir);
 
   res.json({
     success: true,
@@ -79,9 +71,7 @@ router.post('/upload', (req, res) => {
       destination: (req, file, cb) => {
         const { uploadId } = req.body;
         const uploadDir = path.join(chunksDir, uploadId);
-        if (!fs.existsSync(uploadDir)) {
-          fs.mkdirSync(uploadDir, { recursive: true });
-        }
+        ensureDir(uploadDir);
         cb(null, uploadDir);
       },
       filename: (req, file, cb) => {
