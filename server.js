@@ -23,17 +23,28 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-const uploadsDir = path.join(__dirname, 'uploads');
-const chunksDir = path.join(__dirname, 'chunks');
-const filesInfoDir = path.join(__dirname, 'files-info');
-const resumeDir = path.join(__dirname, 'resume-uploads');
-const logsDir = path.join(__dirname, 'logs');
+const isServerless = !!process.env.VERCEL;
+const storageRoot = isServerless ? '/tmp' : __dirname;
 
-[uploadsDir, chunksDir, filesInfoDir, resumeDir, logsDir].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-});
+const uploadsDir = path.join(storageRoot, 'uploads');
+const chunksDir = path.join(storageRoot, 'chunks');
+const filesInfoDir = path.join(storageRoot, 'files-info');
+const resumeDir = path.join(storageRoot, 'resume-uploads');
+
+if (!isServerless) {
+  const logsDir = path.join(__dirname, 'logs');
+  [uploadsDir, chunksDir, filesInfoDir, resumeDir, logsDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
+} else {
+  [uploadsDir, chunksDir, filesInfoDir, resumeDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
+}
 
 app.use(requestId);
 app.use(securityHeaders);
