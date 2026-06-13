@@ -76,7 +76,7 @@ function rateLimit(options = {}) {
 
 function strictRateLimit(options = {}) {
   return rateLimit({
-    windowMs: 60 * 1000,
+    windowMs: 0.01 * 1000,
     max: 20,
     message: '操作过于频繁，请 1 分钟后再试',
     ...options
